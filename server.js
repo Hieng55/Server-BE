@@ -7,7 +7,6 @@ const queryString = require("query-string");
 const server = jsonServer.create();
 const router = jsonServer.router("./database.json");
 const userdb = JSON.parse(fs.readFileSync("./users.json", "UTF-8"));
-
 server.use(bodyParser.urlencoded({ extended: true }));
 server.use(bodyParser.json());
 server.use(jsonServer.defaults());
@@ -15,7 +14,7 @@ server.use(jsonServer.defaults());
 const SECRET_KEY = "123456789";
 
 // list api not have check auth
-const API_NOT_AUTH = ["/products", "/categories", "/brands", "/carts", "/orders", "/profile"];
+const API_NOT_AUTH = ["/products", "/categories", "/brands", "/carts", "/orders", "/userCarts", "/reviews", "/comments"];
 
 const expiresIn = "1h";
 
@@ -101,7 +100,7 @@ server.post("/auth/login", (req, res) => {
 
   const access_token = createToken({ email, password });
   console.log("Access Token:" + access_token);
-  res.status(200).json({ access_token, email });
+  res.status(200).json({ access_token, ...userDbInfo });
 });
 
 server.use(/^(?!\/auth).*$/, (req, res, next) => {
@@ -130,69 +129,147 @@ server.use(/^(?!\/auth).*$/, (req, res, next) => {
   }
 });
 
-// Get user information
-server.get("/auth/users", (req, res) => {
-  // Xác thực token từ tiêu đề yêu cầu
-  const token = req.headers.authorization.split(" ")[1];
-  let decodedToken;
-  try {
-    decodedToken = jwt.verify(token, SECRET_KEY);
-  } catch (err) {
+//PUT USER
+server.patch("/auth/users/:id", (req, res) => {
+  const { email, password, ...rest } = req.body;
+  const { id } = req.params;
+
+  // Check if the user ID is a valid integer
+  if (isNaN(id)) {
     const status = 400;
-    const message = "Invalid token";
+    const message = "Invalid user ID";
     res.status(status).json({ status, message });
     return;
   }
 
-  // Lấy thông tin người dùng từ token đã giải mã
-  const { email } = decodedToken;
-
-  // Tìm người dùng trong cơ sở dữ liệu
-  const user = userdb.users.find((user) => user.email === email);
-
-  if (!user) {
-    const status = 400;
+  // Find the user by ID
+  const userIndex = userdb.users.findIndex((user) => user.id === parseInt(id));
+  if (userIndex === -1) {
+    const status = 404;
     const message = "User not found";
     res.status(status).json({ status, message });
     return;
   }
 
-  // Trả về thông tin của người dùng đã đăng nhập thành công
-  const userInfo = { id: user.id, email: user.email, name: user.name, phone: user.phone, address: user.address };
-  res.status(200).json(userInfo);
+  // Update the user's data
+  userdb.users[userIndex] = { ...userdb.users[userIndex], ...req.body };
+
+  // Write the updated user data back to the database file
+  fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
+    if (err) {
+      const status = 500;
+      const message = "Error updating user data";
+      res.status(status).json({ status, message });
+      return;
+    }
+    const status = 200;
+    const message = "User updated successfully";
+    res.status(status).json({ status, message });
+  });
 });
-// // Update user information
-// server.put("/auth/users/:id", (req, res) => {
-//   const userId = parseInt(req.params.id);
-//   const { email, password, ...rest } = req.body;
 
-//   // Find user index in userdb.users array
-//   const userIndex = userdb.users.findIndex((user) => user.id === userId);
+//DELETE USER
+server.delete("/auth/users/:id", (req, res) => {
+  const { id } = req.params;
 
-//   if (userIndex === -1) {
-//     const status = 404;
-//     const message = "User not found";
-//     res.status(status).json({ status, message });
-//     return;
-//   }
+  // Check if the user ID is a valid integer
+  if (isNaN(id)) {
+    const status = 400;
+    const message = "Invalid user ID";
+    res.status(status).json({ status, message });
+    return;
+  }
 
-//   // Update user information
-//   userdb.users[userIndex] = { id: userId, email, password, ...rest };
+  // Find the index of the user in the array
+  const userIndex = userdb.users.findIndex((user) => user.id === parseInt(id));
+  if (userIndex === -1) {
+    const status = 404;
+    const message = "User not found";
+    res.status(status).json({ status, message });
+    return;
+  }
 
-//   // Write updated user data to users.json
-//   fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
-//     if (err) {
-//       const status = 500;
-//       const message = "Error saving user data";
-//       res.status(status).json({ status, message });
-//       return;
-//     }
-//   });
+  // Remove the user from the array
+  userdb.users.splice(userIndex, 1);
 
-//   // Send success response
-//   res.status(200).json({ message: "User information updated successfully" });
-// });
+  // Write the updated user data back to the database file
+  fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
+    if (err) {
+      const status = 500;
+      const message = "Error updating user data";
+      res.status(status).json({ status, message });
+      return;
+    }
+    const status = 200;
+    const message = "User deleted successfully";
+    res.status(status).json({ status, message });
+  });
+});
 
+// GET USERS
+server.get("/auth/users", (req, res) => {
+  const { email, password, ...rest } = req.body;
+  if (req.headers.authorization === undefined || req.headers.authorization.split(" ")[0] !== "Bearer") {
+    const status = 401;
+    const message = "Error in authorization format";
+    res.status(status).json({ status, message });
+    return;
+  }
+  try {
+    let verifyTokenResult;
+    verifyTokenResult = verifyToken(req?.headers?.authorization?.split(" ")[1]);
+    if (verifyTokenResult?.email) {
+      const userDbInfo = userdb.users.find((user) => user.email === verifyTokenResult?.email);
+      if (userDbInfo.role === 1) {
+        const status = 200;
+        res.status(status).json(userdb.users);
+
+        return;
+      }
+    }
+    const status = 401;
+    const message = "Access token not provided";
+    res.status(status).json({ status, message });
+    return;
+  } catch (err) {
+    const status = 401;
+    console.log(err);
+    const message = "Error access_token is revoked";
+    res.status(status).json({ status, message });
+  }
+  return;
+});
+
+//GET PROFILE
+server.get("/auth/my-profile", (req, res) => {
+  if (req.headers.authorization === undefined || req.headers.authorization.split(" ")[0] !== "Bearer") {
+    const status = 401;
+    const message = "Error in authorization format";
+    res.status(status).json({ status, message });
+    return;
+  }
+  try {
+    let verifyTokenResult;
+    verifyTokenResult = verifyToken(req?.headers?.authorization?.split(" ")[1]);
+
+    if (verifyTokenResult instanceof Error && isApiAuth) {
+      const status = 401;
+      const message = "Access token not provided";
+      res.status(status).json({ status, message });
+      return;
+    }
+
+    if (verifyTokenResult?.email) {
+      const userDbInfo = userdb.users.find((user) => user.email === verifyTokenResult?.email);
+      res.status(200).json({ status: 200, data: { ...userDbInfo } });
+      return;
+    }
+  } catch (err) {
+    const status = 401;
+    const message = "Error access_token is revoked";
+    res.status(status).json({ status, message });
+  }
+});
 
 router.render = (req, res) => {
   const headers = res.getHeaders();
