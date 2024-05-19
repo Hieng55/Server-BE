@@ -3,10 +3,13 @@ const bodyParser = require("body-parser");
 const jsonServer = require("json-server");
 const jwt = require("jsonwebtoken");
 const queryString = require("query-string");
-
+const nodemailer = require("nodemailer");
+const express = require("express");
 const server = jsonServer.create();
 const router = jsonServer.router("./database.json");
 const userdb = JSON.parse(fs.readFileSync("./users.json", "UTF-8"));
+const app = express();
+app.use(express.json());
 server.use(bodyParser.urlencoded({ extended: true }));
 server.use(bodyParser.json());
 server.use(jsonServer.defaults());
@@ -129,7 +132,7 @@ server.use(/^(?!\/auth).*$/, (req, res, next) => {
   }
 });
 
-//PUT USER
+//PATCH USER
 server.patch("/auth/users/:id", (req, res) => {
   const { email, password, ...rest } = req.body;
   const { id } = req.params;
@@ -269,6 +272,135 @@ server.get("/auth/my-profile", (req, res) => {
     const message = "Error access_token is revoked";
     res.status(status).json({ status, message });
   }
+});
+
+//EMAIL
+
+server.post("/auth/sendMail", async (req, res) => {
+  const { email, name, subject, orders } = req.body;
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: "hiengoodboy1703@gmail.com",
+      pass: "guxn nvai dfmy iflk",
+    },
+  });
+
+  try {
+    let htmlContent;
+    if (!orders) {
+      htmlContent = fs.readFileSync("./email_teamplate.html", "utf-8");
+      htmlContent = htmlContent.replace(/{{name}}/g, name);
+    } else {
+      htmlContent = fs.readFileSync("./email_bill.html", "utf-8");
+      const order = orders.map((order) => order.title);
+      htmlContent = htmlContent.replace(/{{name}}/g, name).replace(/{{order}}/g, order);
+    }
+
+    const info = await transporter.sendMail({
+      from: '"Orfarm support" <hiengoodboy1703@gmail.com>',
+      to: email,
+      subject: subject,
+      html: htmlContent,
+    });
+    console.log("Message sent: %s", info.messageId);
+    res.status(200).json({ message: `Successfully sent email to ${email}` });
+  } catch (err) {
+    console.error("Error sending email:", err);
+    res.status(500).json({ message: "Error sending email", error: err });
+  }
+});
+
+// code email
+server.post("/auth/sendVerificationCode", async (req, res) => {
+  const { email } = req.body;
+
+  const userIndex = userdb.users.findIndex((user) => user.email === email);
+  if (userIndex === -1) {
+    return res.status(400).json({ status: 400, message: "Email does not exist" });
+  }
+
+  const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+  userdb.users[userIndex].verificationCode = verificationCode;
+
+  try {
+    const info = await sendVerificationEmail(email, verificationCode);
+    fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
+      if (err) {
+        return res.status(500).json({ status: 500, message: "Error saving verification code" });
+      }
+      res.status(200).json({ message: "Verification code sent successfully" });
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error sending verification code", error: err });
+  }
+});
+
+async function sendVerificationEmail(email, verificationCode) {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: "hiengoodboy1703@gmail.com",
+      pass: "guxn nvai dfmy iflk",
+    },
+  });
+
+  const htmlContent = `<p>Your verification code is: <strong>${verificationCode}</strong></p>`;
+
+  return await transporter.sendMail({
+    from: '"Orfarm support" <hiengoodboy1703@gmail.com>',
+    to: email,
+    subject: "Email Verification Code",
+    html: htmlContent,
+  });
+}
+
+// Verify the Verification Code
+server.post("/auth/verifyCode", (req, res) => {
+  const { email, verificationCode } = req.body;
+
+  const userIndex = userdb.users.findIndex((user) => user.email === email);
+  if (userIndex === -1) {
+    return res.status(400).json({ status: 400, message: "Email does not exist" });
+  }
+
+  const user = userdb.users[userIndex];
+
+  if (user.verificationCode !== verificationCode) {
+    return res.status(400).json({ status: 400, message: "Invalid verification code" });
+  }
+
+  // Verification successful, remove the verification code
+  delete user.verificationCode;
+
+  fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
+    if (err) {
+      return res.status(500).json({ status: 500, message: "Error updating user data" });
+    }
+    res.status(200).json({ status: 200, message: "Verification successful" });
+  });
+});
+
+// Reset Password
+server.post("/auth/resetPassword", (req, res) => {
+  const { email, newPassword } = req.body;
+
+  const userIndex = userdb.users.findIndex((user) => user.email === email);
+  if (userIndex === -1) {
+    return res.status(400).json({ status: 400, message: "Email does not exist" });
+  }
+
+  // Update the user's password
+  userdb.users[userIndex].password = newPassword;
+  userdb.users[userIndex].confirmPassword = newPassword;
+
+  // Write the updated user data back to the database file
+  fs.writeFile("./users.json", JSON.stringify(userdb), (err) => {
+    if (err) {
+      return res.status(500).json({ status: 500, message: "Error updating user data" });
+    }
+    res.status(200).json({ status: 200, message: "Password reset successful" });
+  });
 });
 
 router.render = (req, res) => {

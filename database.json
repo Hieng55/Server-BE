@@ -164,7 +164,7 @@
       "description": "The color could be slightly different between on the screen and in practice. / Please note that body builds vary by person, therefore, detailed size information should be reviewed below on the product description.",
       "categoriesId": 1,
       "status": "NEW",
-      "image": "https://html.hixstudio.net/orfarm/assets/img/product/products14-min.jpg",
+      "image": "https://html.hixstudio.net/orfarm/assets/img/product/products15-min.jpg",
       "brandsId": 2,
       "rate": 5
     },
@@ -773,6 +773,18 @@
     {
       "name": "hien",
       "id": 2
+    },
+    {
+      "name": "hien",
+      "id": 3
+    },
+    {
+      "name": "hien",
+      "id": 4
+    },
+    {
+      "name": "Giao Tình Yêu",
+      "id": 5
     }
   ],
   "carts": [],
